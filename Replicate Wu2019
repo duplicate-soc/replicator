@@ -427,7 +427,7 @@ df2010_order <- na.omit(df2010_order)
 
 
 # Assets are negative?
-df2010$fid[df2010$ASSET<0]-> negative_asset
+df2010_income$fid[df2010_income$ASSET<0]-> negative_asset
 negative_asset <- na.omit(negative_asset)
 negative_asset
 # Assets are negative
