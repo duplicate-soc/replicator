@@ -5,7 +5,7 @@
 ####### Environment ########
 setwd("~/Working Documents")
 library(pacman)
-p_load(tidyverse, gtools, psych,stringr, gmodels,oglmx, AER, readstata13, ineq, foreign)
+p_load(tidyverse, gtools, psych,stringr, gmodels, AER, readstata13, ineq, foreign, VGAM)
 
 # DV: House Area Per Capita; House Property Per Capita; House Number
 # IV: Generation; Gender; Workplace; Occupation; Education; Marriage; Income Group; Family Member Number
@@ -44,7 +44,7 @@ predata %>%
                           breaks = c(-Inf,1939.5, 1949.5, 1959.5, 1969.5, 1979.5, Inf),
                           labels = c("Before 1939", "1940-9", "1950-9","1960-9","1970-9","1980"))) %>% # Generation
   mutate(COLLEGE = (V111<=2)) %>% # Education, High shcool or below/ above high school
-  # Workplace: Non-institutional, Centrally or provincially state-owned, 
+  # Workplace: Non-welfare, Centrally or provincially state-owned, 
   #            Local state-owned or collective-owned institution, retired
   mutate(SEX = V104) %>% # Gender 
   mutate(INCOME = V201) %>%
@@ -56,8 +56,8 @@ data1988$WORKPLACE[data1988$V106==1] <- "Retired"
 data1988$WORKPLACE[data1988$V117==3] <- "Retired"
 data1988$WORKPLACE[data1988$V115==4] <- "Government"
 data1988$WORKPLACE[data1988$V113<=3 & data1988$V115!=4] <- "SOE or Collective"
-data1988$WORKPLACE[data1988$V113>3 & data1988$V113<9] <- "Non-institutional"
-data1988$WORKPLACE[data1988$V112 ==0] <- "Non-institutional"
+data1988$WORKPLACE[data1988$V113>3 & data1988$V113<9] <- "Non-welfare"
+data1988$WORKPLACE[data1988$V112 ==0] <- "Non-welfare"
 
 data1988$OCCUPATION[data1988$V115 == 1 |data1988$V115 == 2 | data1988$V115 == 4 | data1988$V115 == 5] = "Cadre"
 data1988$OCCUPATION[data1988$V115 == 3] = "Professional"
@@ -71,6 +71,9 @@ data1988$OCCUPATION[data1988$V117 == 3] = "Retired"
 data198804$V403[data198804$V403==9999] <- NA
 data198804$V413[data198804$V413==9] <- NA
 
+# HOUSEOWN:V413 
+# 1. Publically-owned House 公房; 2. Old Private or Inherited House 老私房; 3.Rented or Private House 租赁私房
+# 4. Private house built by household 自建私房; 5. Private house bought since house rent reform 房租改革后新购私房
 data198804 %>%
   mutate(AREA = V403/NHH) %>%
   mutate(HOUSEOWN = (V413==2 | V413 ==4 | V413 ==5)) %>%
@@ -96,21 +99,19 @@ df1988 %>%
 df1988 <- na.omit(df1988)
 
 df1988 %>%
-  mutate(INCOMEGROUP = quantcut(INCOME.y,4, na.rm=TRUE)) %>%
+  mutate(INCOMEGROUP = quantcut(INCOME.y/NHH, 4, na.rm=TRUE)) %>%
   mutate(INCOMEGROUP = factor(INCOMEGROUP, 
                               labels = c("1st","2nd","3rd","4th"))) -> df1988
 
-# description
-CrossTable(df1988$HOUSEOWN, digits = 5)
-CrossTable(df1988$SEX, digits = 5)
-CrossTable(df1988$PARTY, digits = 5)
-CrossTable(df1988$COLLEGE, digits = 5)
-CrossTable(df1988$GENERATION, digits = 5)
-CrossTable(df1988$INCOMEGROUP, digits = 5)
-CrossTable(df1988$WORKPLACE, digits = 5)
-CrossTable(df1988$OCCUPATION, digits = 5)
-describe(df1988$NHH)
-describe(df1988$AREA)
+
+df1988 %>%
+  mutate(GENERATION = factor(GENERATION,
+                             levels = c("1960-9","Before 1939", "1940-9","1950-9","1970-9", "1980"))) %>%
+  mutate(WORKPLACE = factor(WORKPLACE,
+                            levels = c("Non-welfare", "Government", "SOE or Collective", "Retired"))) %>%
+  mutate(OCCUPATION = factor(OCCUPATION,
+                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df1988
+
 
 p_load(foreign)
 write.dta(df1988, "df1988.dta")
@@ -179,9 +180,9 @@ data2002$p135 <- as.numeric(data2002$p135)
 data2002$WORKPLACE[data2002$p107 == 2| data2002$p107==3] = "Retired"
 data2002$WORKPLACE[data2002$WORKPLACE=="Retired" & data2002$p184 == 2] = "Government"
 data2002$WORKPLACE[data2002$WORKPLACE=="Retired" & (data2002$p185 <= 3| data2002$p185==8)] = "SOE or Collective"
-data2002$WORKPLACE[data2002$WORKPLACE=="Retired" & (data2002$p185 >= 4| data2002$p185 <=7|data2002$p185 >8)] = "Non-institutional"
+data2002$WORKPLACE[data2002$WORKPLACE=="Retired" & (data2002$p185 >= 4| data2002$p185 <=7|data2002$p185 >8)] = "Non-welfare"
 data2002$WORKPLACE[data2002$p134 == 2 | data2002$p134 == 3] = "Government"
-data2002$WORKPLACE[data2002$p134 ==1 | data2002$p134 == 4] = "Non-institutional"
+data2002$WORKPLACE[data2002$p134 ==1 | data2002$p134 == 4] = "Non-welfare"
 data2002$WORKPLACE[data2002$p135 >= 1 & data2002$p135 <= 3] = "SOE or Collective"
 
 # Household size, House Area Per Capita, House Asset Per Capita
@@ -189,10 +190,10 @@ data2002$WORKPLACE[data2002$p135 >= 1 & data2002$p135 <= 3] = "SOE or Collective
 data200204 %>%
   mutate(NHH = b21) %>%
   mutate(AREA = b22/NHH) %>%
-  mutate(HOUSEOWN = (b24==2 | b24 ==4)) %>% # the categories of b24 is not clear
-  # I refer to https://bbs.pinggu.org/thread-927195-1-1.html
-  # 1)public house 2)self-built or inherited 3)shared dormitory 4)self-purchased private house. 5)rented private house 6)rented private house,shared
-  mutate(MULTI = (b219==2 | b219 == 4)) %>%
+  mutate(HOUSEOWN = (b24==3 | b24 ==4 | b24 == 5)) %>% 
+  # the author corrected my original categories
+  # 1. 租赁公房；2. 租赁私房；3. 原有私房； 4.房改私房； 5. 商品房；6. 其他
+  mutate(MULTI = (b219==2 | b219 == 4 | b219 ==5)) %>%
   select(pcode, NHH, AREA,  HOUSEOWN,MULTI) -> data2002household
 
 data200202 %>%
@@ -224,7 +225,7 @@ df2002 <- df2002 %>%
 df2002 <- na.omit(df2002)
 
 df2002 %>%
-  mutate(INCOMEGROUP = quantcut(INCOME.y,4, na.rm=TRUE)) %>%
+  mutate(INCOMEGROUP = quantcut(INCOME.y/NHH,4, na.rm=TRUE)) %>%
   mutate(INCOMEGROUP = factor(INCOMEGROUP, 
                               labels = c("1st","2nd","3rd","4th"))) -> df2002
 
@@ -232,7 +233,7 @@ df2002 %>%
   mutate(GENERATION = factor(GENERATION,
                              levels = c("1960-9","Before 1939", "1940-9","1950-9","1970-9", "1980"))) %>%
   mutate(WORKPLACE = factor(WORKPLACE,
-                            levels = c("Non-institutional", "Government", "SOE or Collective", "Retired"))) %>%
+                            levels = c("Non-welfare", "Government", "SOE or Collective", "Retired"))) %>%
   mutate(OCCUPATION = factor(OCCUPATION,
                              levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2002
 
@@ -240,22 +241,6 @@ df2002$HOUSE = 0
 df2002$HOUSE[df2002$HOUSEOWN == 1] <- 1
 df2002$HOUSE[df2002$MULTI==TRUE] <- 2
 df2002$HOUSE <- as.factor(df2002$HOUSE)
-
-# description Table 1
-CrossTable(df2002$HOUSE,digits = 5)
-CrossTable(df2002$SEX,digits = 5)
-CrossTable(df2002$MARRIAGE,digits = 5)
-CrossTable(df2002$PARTY,digits = 5)
-CrossTable(df2002$URESIDENCE,digits = 5)
-CrossTable(df2002$COLLEGE,digits = 5)
-CrossTable(df2002$GENERATION,digits = 5)
-CrossTable(df2002$INCOMEGROUP,digits = 5)
-CrossTable(df2002$WORKPLACE,digits = 5)
-CrossTable(df2002$OCCUPATION,digits = 5)
-describe(df2002$NHH)
-describe(df2002$AREA)
-describe(df2002$ASSET)
-describe(df2002$GROSS_ASSET)
 
 # save in stata format
 write.dta(df2002, "df2002_new.dta")
@@ -284,155 +269,199 @@ data2010h <- read.dta13("ecfps2010famecon_201906.dta",convert.factors = TRUE, ge
                         missing.type = FALSE, convert.dates = TRUE, replace.strl = TRUE,
                         add.rownames = FALSE, nonint.factors = FALSE, select.rows = NULL,
                         select.cols = NULL, strlexport = FALSE, strlpath = ".")
+# read community-level data
+data2010c <- read.dta13("ecfps2010comm_201906.dta",convert.factors = TRUE, generate.factors = FALSE,
+                        encoding = "UTF-8", fromEncoding = NULL, convert.underscore = FALSE,
+                        missing.type = FALSE, convert.dates = TRUE, replace.strl = TRUE,
+                        add.rownames = FALSE, nonint.factors = FALSE, select.rows = NULL,
+                        select.cols = NULL, strlexport = FALSE, strlpath = ".")
 
-# report the number of urban household
+# select the urban cases
+# three variables: "urban", "cz7","cz701"
+# urban == 1, 城市； 
+# cz7 == 1 | 2 城市或城镇，去掉农村和郊区
+# cz701 != 9 城市不是村改居
+# cz702 != 9 城镇不是村改居
+data2010c %>%
+  select(cid, cz7,cz701, cz702) -> community
+data2010a <- merge(data2010a, community, all.x= TRUE, by = "cid")
 data2010a %>%
-  filter(urban == 1) -> data2010a
+  filter(urban == 1) %>%
+  filter(cz7 == 1 | cz7 ==2 ) %>%
+  filter(cz701 != 9) %>%
+  filter(cz702 !=9) -> data2010a
+
 data2010a %>%
   group_by(fid) %>%
   slice(1) %>%
-  ungroup() -> household #result:6964 urban households
+  ungroup() -> household #result:4478 urban households
+nrow(household)
 rm(household)
 
 # individual-level clean
-data2010a$qe1[data2010a$qe1 < 0] = NA
+data2010a$qe1[data2010a$qe1 < 0] = NA # qe1 is for marriage
 data2010a$income[data2010a$income < 0] = NA
+data2010a$q1y_best[data2010a$qa1y_best < 0] = NA
+# QG305 您现在主要是在哪个机构工作，codebook 231页
+# delete if qg305 == -1 don't know; == -2 refuse; == -8 unapplicable
+# == 17 unable to judge
 data2010a$qg305[data2010a$qg305 < 0] = NA
 data2010a$qg305[data2010a$qg305 == 17] = NA
+# QG307CODE 职业事后编码
 data2010a$qg307code[data2010a$qg307code < 0] = NA
 data2010a$qg307code[data2010a$qg307code > 69999] = NA
-data2010a$income[data2010a$income <0] = NA
-data2010$qa1age[data2010$qa1age < 16] = NA
+data2010a$qa1age[data2010a$qa1age < 0] = NA
 
 data2010a %>%
   mutate(SEX = gender) %>%
-  mutate(BORN = 2010 - qa1age) %>%
-  mutate(GENERATION = cut(BORN,
+  mutate(GENERATION = cut(qa1y_best,
                           breaks = c(-Inf,1939.5, 1949.5, 1959.5, 1969.5, 1979.5, Inf),
                           labels = c("Before 1939", "1940-9", "1950-9","1960-9","1970-9","1980"))) %>% # Generation
-  mutate(URESIDENCE = (qa2==3)) %>%
+  mutate(URESIDENCE = (qa2==3)) %>% # Urban hukou
   mutate(MARRIAGE = (qe1 == 2)) %>% # Marriage
-  mutate(PARTY = (qa7_s_1 == 1)) %>% # PARTY
-  mutate(COLLEGE = (cfps2010edu_best >=5)) %>% 
+  mutate(PARTY = (qa7_s_1 == 1)) %>% # PARTY MEMBER
+  mutate(COLLEGE = (cfps2010edu_best >=5)) %>% # 大专及以上
   mutate(INCOME = income) %>%
   mutate(OCCUPATION = cut(qg307code,
                           breaks = c(9999, 19999, 29999, 39999, 69999),
                           labels = c("Cadre","Professional","Clerk","Worker"))) %>%
-  mutate(RETIRE = (qg301 == 1)) %>%
   mutate(PROVINCE = as.factor(provcd)) %>%
   select(pid, fid, indno, SEX, URESIDENCE, GENERATION, MARRIAGE, PARTY, COLLEGE, INCOME, 
-         OCCUPATION, RETIRE, PROVINCE, qg3, qg301, qg305) -> data2010
+         OCCUPATION,  PROVINCE, qg3, qg301, qg305) -> data2010
 
-data2010$WORKPLACE[data2010$qg3==0] <- "Non-institutional"
+data2010 %>%
+  mutate(OCCUPATION = as.character(OCCUPATION)) %>%
+  mutate(OCCUPATION = ifelse(qg3==0, "Worker", OCCUPATION)) %>% # "Worker" is short for Worker and Unemployed
+  mutate(OCCUPATION = ifelse(qg301==1, "Retired", OCCUPATION))   -> data2010
+
+# if the case is not working at all, he/she is "non-welfare", which means 
+# being out of the welfare state.
+# but if that is because he/she has been retired, then he/she is attributed as retired
+# but if the retired person has reported his/her former workplace, then he/she is 
+# classified into the workplace.
+data2010$WORKPLACE[data2010$qg3==0] <- "Non-welfare"
 data2010$WORKPLACE[data2010$qg301==1] <- "Retired"
 data2010$WORKPLACE[data2010$qg305 == 1 | data2010$qg305 == 13 | data2010$qg305 == 14 | data2010$qg305 == 2] <- "Government"
 data2010$WORKPLACE[data2010$qg305 == 10 | data2010$qg305 == 11 | data2010$qg305 == 12| 
                    data2010$qg305 == 5  | data2010$qg305 == 6  | data2010$qg305 == 7 |
-                   data2010$qg305 == 77 | data2010$qg305 == 8  | data2010$qg305 == 9 ] <- "Non-institutional"
+                   data2010$qg305 == 77 | data2010$qg305 == 8  | data2010$qg305 == 9 ] <- "Non-welfare"
 data2010$WORKPLACE[data2010$qg305 == 3 | data2010$qg305 == 4] <- "SOE or Collective"
 
 data2010 %>%
-  mutate(OCCUPATION = as.character(OCCUPATION)) %>%
-  mutate(OCCUPATION = ifelse(RETIRE == TRUE, "Retired", OCCUPATION))  -> data2010
+  select(-c(qg3,qg301,qg305)) -> data2010
+#4478 households
 
-data2010 %>%
-  select(-c(qg3,qg301,qg305,RETIRE)) -> data2010
- 
 #household-level data clean
-data2010h$fd2[data2010h$fd2 < 0] <- NA
-data2010h$fd4[is.na(data2010h$fd4)] <- -8
-data2010h$fd4[data2010h$fd4 >1000] <- data2010h$fd4 / 10000
-data2010h$fd4[data2010h$fd4 <0 ] <- NA
+# building area of the house
+data2010h$fd2[data2010h$fd2 < 0] <- NA # -1 unknown; -2 Refuse
+# the current value of your house in 10,000 yuan
+# If house assset is more than 5000, I concern it as in wrong unit of measurement
+data2010h$fd4[is.na(data2010h$fd4)] <- -8 # replace NAs
+data2010h$fd4[data2010h$fd4 >=1000] <- data2010h$fd4 / 10000 
+data2010h$fd703[data2010h$fd703 >=1000 & data2010h$fd702 < 200] <- data2010h$fd703 / 10000
+describe(data2010h$fd703)
+data2010h$fd4[data2010h$fd4 < 0] <- NA
+data2010h$fd702[data2010h$fd702==-8] <- 0 
+data2010h$fd702[data2010h$fd702<0] <- NA # Area of other places
+data2010h$fd703[data2010h$fd703==-8] <- 0
+data2010h$fd703[data2010h$fd703<0] <- NA # Value of other places
 
 data2010h %>%
   mutate(NHH = familysize) %>%
-  mutate(AREA = fd2 / NHH) %>%
-  mutate(ASSET = (fd4 - mortage/10000) / NHH) %>%
-  mutate(GROSS_ASSET= fd4/NHH) %>%
-  mutate(HOUSEOWN = (fd1 == 1 | fd1==2)) %>%
+  mutate(AREA = (fd2+fd702) / NHH) %>%
+  mutate(ASSET = (fd4 + fd703 - mortage/10000) / NHH) %>%
+  mutate(HOUSEOWN = (fd1 == 1)) %>% # owned solely by family 
   mutate(MULTI = (fd7 == 1)) %>%
-  select(fid, NHH, AREA, GROSS_ASSET, ASSET, HOUSEOWN, MULTI) ->  data2010household
+  select(fid, NHH, AREA, ASSET, HOUSEOWN, MULTI) ->  data2010household
 
-data2010 <- merge(data2010, data2010household, by = "fid")
+
+data2010 %>%
+  group_by(fid) %>%
+  slice(1) %>%
+  ungroup() -> household #result:4478 urban households
+nrow(household)
+rm(household)
+
+data2010 <- merge(data2010, data2010household, all.x = TRUE, by = "fid")
+
+data2010a %>%
+  group_by(fid) %>%
+  slice(1) %>%
+  ungroup() -> household #result:4478 urban households
+nrow(household)
+rm(household)
+
+
 # aggregate household income
 aggregate(INCOME~fid, data2010, sum, na.action = na.omit) -> householdin
+data2010 <- merge(data2010, householdin, all.x= TRUE, by = "fid")
+data2010$INCOME_A <- data2010$INCOME.y/data2010$NHH # Average Income Within a Household
+
+data2010 %>%
+  mutate(INCOMEGROUP = quantcut(INCOME_A,4, na.rm=TRUE)) %>%
+  mutate(INCOMEGROUP = factor(INCOMEGROUP, 
+                              labels = c("1st","2nd","3rd","4th"))) -> data2010
+
 
 data2010$HOUSE <- 0
 data2010$HOUSE[data2010$HOUSEOWN == TRUE] <- 1
 data2010$HOUSE[data2010$MULTI == TRUE] <- 2
 data2010$HOUSE <- as.factor(as.character(data2010$HOUSE))
 
-## NOTE:
-## Wu's paper may use the strategy to select cases: Select the first family member
-## My modified strategy is to select cases by income first, and delet all NAs
-
-# Wu dataframe
-data2010 %>%
-  filter(indno == 1) -> df2010wu
-na.omit(data2010) -> df2010wu
-
-merge(df2010wu, householdin, by = "fid") -> df2010wu
-df2010wu %>%
-  mutate(INCOMEGROUP = quantcut(INCOME.y,4, na.rm=TRUE)) %>%
-  mutate(INCOMEGROUP = factor(INCOMEGROUP, 
-                              labels = c("1st","2nd","3rd","4th"))) -> df2010wu
-# description
-CrossTable(df2010wu$HOUSE, digits = 5)
-CrossTable(df2010wu$SEX, digits = 5)
-CrossTable(df2010wu$MARRIAGE, digits = 5)
-CrossTable(df2010wu$PARTY, digits = 5)
-CrossTable(df2010wu$COLLEGE, digits = 5)
-CrossTable(df2010wu$GENERATION, digits = 5)
-CrossTable(df2010wu$URESIDENCE, digits = 5)
-CrossTable(df2010wu$INCOMEGROUP, digits = 5)
-CrossTable(df2010wu$OCCUPATION, digits = 5)
-CrossTable(df2010wu$WORKPLACE, digits = 5)
-describe(df2010wu$NHH)
-describe(df2010wu$AREA)
-describe(df2010wu$ASSET)
 
 # select the family members with highest income as the head
-data2010 <- data2010[order(data2010$fid, -data2010$INCOME),]
+data2010 <- data2010[order(data2010$fid, -data2010$INCOME.x),]
 data2010 %>%
   group_by(fid) %>%
   slice(1) %>%
-  ungroup() -> df2010
+  ungroup() -> df2010_income
+# select the family members ranked as the first
+data2010 <- data2010[order(data2010$fid, data2010$pid),]
+data2010 %>%
+  group_by(fid) %>%
+  slice(1) %>%
+  ungroup() -> df2010_order
+# drop cases with nas
+df2010_income <- na.omit(df2010_income)
+df2010_order <- na.omit(df2010_order)
 
-df2010 <- merge(df2010, householdin, by = "fid")
 
-# drop all NAs
-df2010 <- na.omit(df2010)
+# Assets are negative?
+df2010$fid[df2010$ASSET<0]-> negative_asset
+negative_asset <- na.omit(negative_asset)
+negative_asset
+# Assets are negative
+#211282  411481 
 
-df2010 %>%
-  mutate(INCOMEGROUP = quantcut(INCOME.y,4, na.rm=TRUE)) %>%
-  mutate(INCOMEGROUP = factor(INCOMEGROUP, 
-                              labels = c("1st","2nd","3rd","4th"))) -> df2010
-
-# description
-CrossTable(df2010$HOUSE, digits = 5)
-CrossTable(df2010$SEX, digits = 5)
-CrossTable(df2010$MARRIAGE, digits = 5)
-CrossTable(df2010$PARTY, digits = 5)
-CrossTable(df2010$COLLEGE, digits = 5)
-CrossTable(df2010$GENERATION, digits = 5)
-CrossTable(df2010$URESIDENCE, digits = 5)
-CrossTable(df2010$INCOMEGROUP, digits = 5)
-CrossTable(df2010$OCCUPATION, digits = 5)
-CrossTable(df2010$WORKPLACE, digits = 5)
-describe(df2010$NHH)
-describe(df2010$AREA)
-describe(df2010$ASSET)
-describe(df2010$GROSS_ASSET)
-
-df2010 %>%
+df2010_income %>%
   mutate(GENERATION = factor(GENERATION,
                              levels = c("1960-9","Before 1939", "1940-9","1950-9","1970-9", "1980"))) %>%
   mutate(WORKPLACE = factor(WORKPLACE,
-                            levels = c("Non-institutional", "Government", "SOE or Collective", "Retired"))) %>%
+                            levels = c("Non-welfare", "Government", "SOE or Collective", "Retired"))) %>%
   mutate(OCCUPATION = factor(OCCUPATION,
-                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2010
+                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2010_income
 
-write.dta(df2010, "df2010.dta")
+write.dta(df2010_income, "df2010_income.dta")
+
+df2010_order %>%
+  mutate(GENERATION = factor(GENERATION,
+                             levels = c("1960-9","Before 1939", "1940-9","1950-9","1970-9", "1980"))) %>%
+  mutate(WORKPLACE = factor(WORKPLACE,
+                            levels = c("Non-welfare", "Government", "SOE or Collective", "Retired"))) %>%
+  mutate(OCCUPATION = factor(OCCUPATION,
+                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2010_order
+
+write.dta(df2010_order, "df2010_order.dta")
+
+df2010_income %>%
+  mutate(GENERATION = factor(GENERATION,
+                             levels = c("1960-9","Before 1939", "1940-9","1950-9","1970-9", "1980"))) %>%
+  mutate(WORKPLACE = factor(WORKPLACE,
+                            levels = c("Non-welfare", "Government", "SOE or Collective", "Retired"))) %>%
+  mutate(OCCUPATION = factor(OCCUPATION,
+                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2010_income
+
+write.dta(df2010_income, "df2010_income.dta")
 
 rm(householdin)
 rm(data2010household)
@@ -443,21 +472,51 @@ rm(data2010)
 ##################################################################
 ##################################################################
 ###### CFPS2014 Data #######
+# read individual-level data
 data2014a <- read.dta13("ecfps2014adult_201906.dta",convert.factors = TRUE, generate.factors = FALSE,
                         encoding = "UTF-8", fromEncoding = NULL, convert.underscore = FALSE,
                         missing.type = FALSE, convert.dates = TRUE, replace.strl = TRUE,
                         add.rownames = FALSE, nonint.factors = FALSE, select.rows = NULL,
                         select.cols = NULL, strlexport = FALSE, strlpath = ".")
+
 # read household-level data
 data2014h <- read.dta13("ecfps2014famecon_201906.dta",convert.factors = TRUE, generate.factors = FALSE,
                         encoding = "UTF-8", fromEncoding = NULL, convert.underscore = FALSE,
                         missing.type = FALSE, convert.dates = TRUE, replace.strl = TRUE,
                         add.rownames = FALSE, nonint.factors = FALSE, select.rows = NULL,
                         select.cols = NULL, strlexport = FALSE, strlpath = ".")
-data2014a %>%
-  filter(urban14 == 1) -> data2014a
 
-data2014a$p_income[data2014a$p_income<0] <- NA
+# read community-level data
+data2014c <-  read.dta13("ecfps2014comm_201906.dta",convert.factors = TRUE, generate.factors = FALSE,
+                         encoding = "UTF-8", fromEncoding = NULL, convert.underscore = FALSE,
+                         missing.type = FALSE, convert.dates = TRUE, replace.strl = TRUE,
+                         add.rownames = FALSE, nonint.factors = FALSE, select.rows = NULL,
+                         select.cols = NULL, strlexport = FALSE, strlpath = ".")
+
+# read cfps2012 household-level data
+data2012h <- read.dta13("ecfps2012famecon_201906.dta",convert.factors = TRUE, generate.factors = FALSE,
+                        encoding = "UTF-8", fromEncoding = NULL, convert.underscore = FALSE,
+                        missing.type = FALSE, convert.dates = TRUE, replace.strl = TRUE,
+                        add.rownames = FALSE, nonint.factors = FALSE, select.rows = NULL,
+                        select.cols = NULL, strlexport = FALSE, strlpath = ".")
+
+# Select the urban sample, confirmed by the author
+data2014c %>%
+  select(cid14, cz7, cz701) -> community
+data2014a <- merge(data2014a, community, all.x = TRUE, by = "cid14")
+data2014a %>%
+  filter(urban14 == 1) %>%
+  filter(cz7 ==1 | cz7 == 2) %>%
+  filter(cz701 !=9) -> data2014a
+
+data2014a %>%
+  group_by(fid14) %>%
+  slice(1) %>%
+  ungroup() -> household #result:2758 urban households
+nrow(household)
+rm(household)
+
+data2014a$p_income[data2014a$p_income<0] <- NA # Set missing value for household income as missing value
 
 data2014a %>%
   mutate(SEX = cfps_gender) %>%
@@ -473,93 +532,100 @@ data2014a %>%
   mutate(OCCUPATION = cut(qg303code,
                           breaks = c(9999, 19999, 29999, 39999, 69999),
                           labels = c("Cadre","Professional","Clerk","Worker"))) %>%
-  mutate(RETIRE = (qi101==1)) %>%
-  mutate(PROVINCE = provcd14) %>%
+  mutate(PROVINCE = as.factor(as.character(provcd14))) %>%
   select(pid, fid10, SEX, URESIDENCE, GENERATION, MARRIAGE, PARTY, COLLEGE, INCOME, 
-         OCCUPATION, RETIRE, PROVINCE, qg1, qg2, qi101) -> data2014
-
-data2014$WORKPLACE[data2014$qi101==1] <- "Retired"
-data2014$WORKPLACE[data2014$qg2==1] <- "Government"
-data2014$WORKPLACE[data2014$qg2== 2 | data2014$qg2 == 3] <- "SOE or Collective"
-data2014$WORKPLACE[data2014$qg2>=4] <- "Non-institutional"
+         OCCUPATION,  PROVINCE, employ2014, qg2, qi101) -> data2014
 
 data2014 %>%
   mutate(OCCUPATION = as.character(OCCUPATION)) %>%
-  mutate(OCCUPATION = ifelse(qg1==-8, "Worker", OCCUPATION)) %>%
-  mutate(OCCUPATION = ifelse(RETIRE == TRUE, "Retired", OCCUPATION)) %>%
-  select(-c(qg1,qg2,qi101)) -> data2014
+  mutate(OCCUPATION = ifelse(employ2014 == 0 | employ2014 == 3, "Worker", OCCUPATION)) %>%
+  mutate(OCCUPATION = ifelse(qi101==1, "Retired", OCCUPATION))-> data2014
+
+data2014$WORKPLACE[data2014$employ2014 == 0 | data2014$employ2014 == 3] <- "Non-welfare"
+data2014$WORKPLACE[data2014$qi101==1] <- "Retired"
+data2014$WORKPLACE[data2014$qg2==1] <- "Government"
+data2014$WORKPLACE[data2014$qg2== 2 | data2014$qg2 == 3] <- "SOE or Collective"
+data2014$WORKPLACE[data2014$qg2>=4] <- "Non-welfare"
+
+select(data2014, -c(employ2014,qg2,qi101)) -> data2014
 
 # household-level data
-data2014h$fq801[data2014h$fq801==-8] <- NA
-data2014h$fq801[data2014h$fq801==-1] <- NA
-data2014h$fq6[data2014h$fq6==-8] <- 0
-data2014h$fq6[data2014h$fq6<0] <- NA
-data2014h$fq6 = ifelse(data2014h$fq6>2000, data2014h$fq6/10000, data2014h$fq6)
+# select the cases from data2012h for constructive area
+data2012h %>%
+  select(fid10, fq701_best) -> area2012
+colnames(area2012) <- c("fid10","area2012")
+area2012$area2012[area2012$area2012 <0] = NA
+data2014h <- merge(data2014h, area2012, all.x = TRUE, 
+                   by = "fid10")
+
+data2014h$area2014 <- ifelse(data2014h$fq8==1, data2014h$area2012,data2014h$fq801)
+
+data2014h$area2014[data2014h$area2014 < 0] <- NA 
+# the difference between refusal and unknown is no longer important
+data2014h$fq6_best[data2014h$fq6_best==-8] <- 0
+data2014h$fq6_best[data2014h$fq6_best==-1] <- NA
+data2014h$fr2_best[data2014h$fr2_best==-8] <- 0
+data2014h$fr2_best[data2014h$fr2_best==-1] <- NA
 
 data2014h %>%
   mutate(NHH = fml2014num) %>%
-  mutate(AREA = fq801 / NHH) %>%
-  mutate(ASSET = (fq6-mortage/10000)  / NHH) %>%
-  mutate(GROSS_ASSET = fq6/NHH) %>%
-  mutate(HOUSEOWN = (fq2 <= 2)) %>%
+  mutate(AREA = area2014 / NHH) %>%
+  mutate(ASSET = (fq6_best + fr2_best -mortage/10000)  / NHH) %>%
+  mutate(HOUSEOWN = (fq2 ==1)) %>%
   mutate(MULTI = (fr101>=1)) %>%
-  select(fid10, NHH, ASSET, GROSS_ASSET, HOUSEOWN, MULTI) ->  data2014household
+  select(fid10, NHH, AREA, ASSET, HOUSEOWN, MULTI) ->  data2014household
 
 data2014 <- merge(data2014, data2014household, by = "fid10")
-# aggregate household income
-aggregate(INCOME~fid10, data2014, sum, na.action = na.omit) -> householdin
 
+# aggregate household income and divided into four groups
+aggregate(INCOME~fid10, data2014, sum, na.action = na.omit) -> householdin
+data2014 <- merge(data2014, householdin, by = "fid10")
+data2014$INCOME_A <- data2014$INCOME.y/data2014$NHH
+data2014 %>%
+  mutate(INCOMEGROUP = quantcut(INCOME_A,4, na.rm=TRUE)) %>%
+  mutate(INCOMEGROUP = factor(INCOMEGROUP, 
+                              labels = c("1st","2nd","3rd","4th"))) -> data2014
+
+# generate a variable for house ownership
 data2014$HOUSE <- "0"
 data2014$HOUSE[data2014$HOUSEOWN == TRUE] <- "1"
 data2014$HOUSE[data2014$MULTI == TRUE] <- "2"
 
-data2014 <- data2014[order(data2014$fid, -data2014$INCOME),]
+# change province into factor
+data2014$PROVINCE <- as.factor(data2014$PROVINCE)
+
+# select cases by income
+data2014 <- data2014[order(data2014$fid, -data2014$INCOME.x),]
 data2014 %>%
   group_by(fid10) %>%
   slice(1) %>%
-  ungroup() -> df2014
-
-df2014 <- merge(df2014, householdin, by = "fid10")
-df2014$PROVINCE <- as.factor(df2014$PROVINCE)
+  ungroup() -> df2014_income
+# select cases by order
+data2014 <- data2014[order(data2014$fid, data2014$pid),]
+data2014 %>%
+  group_by(fid10) %>%
+  slice(1) %>%
+  ungroup() -> df2014_order
 
 # drop all NAs
-df2014 <- na.omit(df2014)
+df2014_income <- na.omit(df2014_income)
+df2014_order <- na.omit(df2014_order)
 
-df2014 %>%
-  mutate(INCOMEGROUP = quantcut(INCOME.y,4, na.rm=TRUE)) %>%
-  mutate(INCOMEGROUP = factor(INCOMEGROUP, 
-                              labels = c("1st","2nd","3rd","4th"))) -> df2014
-
-# description
-CrossTable(df2014$HOUSE, digits = 5)
-CrossTable(df2014$SEX, digits = 5)
-CrossTable(df2014$URESIDENCE, digits = 5)
-CrossTable(df2014$MARRIAGE, digits = 5)
-CrossTable(df2014$PARTY, digits = 5)
-CrossTable(df2014$COLLEGE, digits = 5)
-CrossTable(df2014$GENERATION, digits = 5)
-CrossTable(df2014$INCOMEGROUP, digits = 5)
-CrossTable(df2014$OCCUPATION, digits = 5)
-CrossTable(df2014$WORKPLACE, digits = 5)
-describe(df2014$NHH)
-#describe(df2014$AREA)
-describe(df2014$ASSET)
-describe(df2014$GROSS_ASSET)
 
 # produce stata data
-df2014$HOUSE <- as.factor(as.character(df2014$HOUSE))
-df2014$WORKPLACE <- as.factor(as.character(df2014$WORKPLACE))
-df2014$OCCUPATION <- as.factor(as.character(df2014$OCCUPATION))
-df2014 %>%
+df2014_income$HOUSE <- as.factor(as.character(df2014_income$HOUSE))
+df2014_income$WORKPLACE <- as.factor(as.character(df2014_income$WORKPLACE))
+df2014_income$OCCUPATION <- as.factor(as.character(df2014_income$OCCUPATION))
+df2014_income %>%
   mutate(GENERATION = factor(GENERATION,
                              levels = c("1960-9","Before 1939", "1940-9","1950-9","1970-9", "1980"))) %>%
   mutate(WORKPLACE = factor(WORKPLACE,
-                            levels = c("Non-institutional", "Government", "SOE or Collective", "Retired"))) %>%
+                            levels = c("Non-welfare", "Government", "SOE or Collective", "Retired"))) %>%
   mutate(OCCUPATION = factor(OCCUPATION,
-                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2014
+                             levels = c("Worker", "Cadre","Professional","Clerk","Retired"))) -> df2014_income
 
-df2014 <- na.omit(df2014)
-write.dta(df2014, "df2014.dta")
+df2014_income <- na.omit(df2014_income)
+write.dta(df2014_income, "df2014_income.dta")
 
 rm(householdin)
 rm(data2014household)
@@ -570,27 +636,142 @@ rm(data2014)
 ####################################################################################
 ####################################################################################
 ## Analysis
+#Table 1
+
+# 1988
+CrossTable(df1988$HOUSEOWN, digits = 5)
+CrossTable(df1988$SEX, digits = 5)
+CrossTable(df1988$PARTY, digits = 5)
+CrossTable(df1988$COLLEGE, digits = 5)
+CrossTable(df1988$GENERATION, digits = 5)
+CrossTable(df1988$INCOMEGROUP, digits = 5)
+CrossTable(df1988$WORKPLACE, digits = 5)
+CrossTable(df1988$OCCUPATION, digits = 5)
+describe(df1988$NHH)
+describe(df1988$AREA)
+
+# 2002
+CrossTable(df2002$HOUSE,digits = 5)
+CrossTable(df2002$SEX,digits = 5)
+CrossTable(df2002$MARRIAGE,digits = 5)
+CrossTable(df2002$PARTY,digits = 5)
+CrossTable(df2002$URESIDENCE,digits = 5)
+CrossTable(df2002$COLLEGE,digits = 5)
+CrossTable(df2002$GENERATION,digits = 5)
+CrossTable(df2002$INCOMEGROUP,digits = 5)
+CrossTable(df2002$WORKPLACE,digits = 5)
+CrossTable(df2002$OCCUPATION,digits = 5)
+describe(df2002$NHH)
+describe(df2002$AREA)
+describe(df2002$ASSET)
+describe(df2002$GROSS_ASSET)
+
+#2010
+CrossTable(df2010_income$HOUSE, digits = 5)
+CrossTable(df2010_income$SEX, digits = 5)
+CrossTable(df2010_income$MARRIAGE, digits = 5)
+CrossTable(df2010_income$PARTY, digits = 5)
+CrossTable(df2010_income$COLLEGE, digits = 5)
+CrossTable(df2010_income$GENERATION, digits = 5)
+CrossTable(df2010_income$URESIDENCE, digits = 5)
+CrossTable(df2010_income$INCOMEGROUP, digits = 5)
+CrossTable(df2010_income$OCCUPATION, digits = 5)
+CrossTable(df2010_income$WORKPLACE, digits = 5)
+describe(df2010_income$NHH)
+describe(df2010_income$AREA)
+describe(df2010_income$ASSET)
+
+CrossTable(df2010_order$HOUSE, digits = 5)
+CrossTable(df2010_order$SEX, digits = 5)
+CrossTable(df2010_order$MARRIAGE, digits = 5)
+CrossTable(df2010_order$PARTY, digits = 5)
+CrossTable(df2010_order$COLLEGE, digits = 5)
+CrossTable(df2010_order$GENERATION, digits = 5)
+CrossTable(df2010_order$URESIDENCE, digits = 5)
+CrossTable(df2010_order$INCOMEGROUP, digits = 5)
+CrossTable(df2010_order$OCCUPATION, digits = 5)
+CrossTable(df2010_order$WORKPLACE, digits = 5)
+describe(df2010_order$NHH)
+describe(df2010_order$AREA)
+describe(df2010_order$ASSET)
+
+# 2014
+CrossTable(df2014_income$HOUSE, digits = 5)
+CrossTable(df2014_income$SEX, digits = 5)
+CrossTable(df2014_income$URESIDENCE, digits = 5)
+CrossTable(df2014_income$MARRIAGE, digits = 5)
+CrossTable(df2014_income$PARTY, digits = 5)
+CrossTable(df2014_income$COLLEGE, digits = 5)
+CrossTable(df2014_income$GENERATION, digits = 5)
+CrossTable(df2014_income$INCOMEGROUP, digits = 5)
+CrossTable(df2014_income$OCCUPATION, digits = 5)
+CrossTable(df2014_income$WORKPLACE, digits = 5)
+describe(df2014_income$NHH)
+describe(df2014_income$AREA)
+describe(df2014_income$ASSET)
+
+CrossTable(df2014_order$HOUSE, digits = 5)
+CrossTable(df2014_order$SEX, digits = 5)
+CrossTable(df2014_order$URESIDENCE, digits = 5)
+CrossTable(df2014_order$MARRIAGE, digits = 5)
+CrossTable(df2014_order$PARTY, digits = 5)
+CrossTable(df2014_order$COLLEGE, digits = 5)
+CrossTable(df2014_order$GENERATION, digits = 5)
+CrossTable(df2014_order$INCOMEGROUP, digits = 5)
+CrossTable(df2014_order$OCCUPATION, digits = 5)
+CrossTable(df2014_order$WORKPLACE, digits = 5)
+describe(df2014_order$NHH)
+describe(df2014_order$AREA)
+describe(df2014_order$ASSET)
+
+
 #Table 2 GINI
-Gini(df1988$INCOME.y/df1988$NHH)
-Gini(df2002$INCOME.y/df2002$NHH)
-Gini(df2010$INCOME.y/df2010$NHH)
-Gini(df2014$INCOME.y/df2014$NHH)
+library(DescTools)
+Gini(df1988$INCOME.y/df1988$NHH, conf.level = 0.95, type = "basic")
+Gini(df2002$INCOME.y/df2002$NHH, conf.level = 0.95, type = "basic")
+Gini(df2010_income$INCOME.y/df2010_income$NHH, conf.level = 0.95, type = "basic")
+Gini(df2014_income$INCOME.y/df2014_income$NHH, conf.level = 0.95, type = "basic")
+Gini(df2010_order$INCOME.y/df2010_order$NHH, conf.level = 0.95, type = "basic")
+Gini(df2014_order$INCOME.y/df2014_order$NHH, conf.level = 0.95, type = "basic")
 
-Gini(df1988$AREA)
-Gini(df2002$AREA)
-Gini(df2010$AREA)
-Gini(df2014$AREA)
+Gini(df1988$AREA, conf.level = 0.95, type = "basic")
+Gini(df2002$AREA, conf.level = 0.95, type = "basic")
+Gini(df2010_income$AREA, conf.level = 0.95, type = "basic")
+Gini(df2014_income$AREA, conf.level = 0.95, type = "basic")
+Gini(df2010_order$AREA, conf.level = 0.95, type = "basic")
+Gini(df2014_order$AREA, conf.level = 0.95, type = "basic")
 
-Gini(df2002$ASSET)
-Gini(df2010$ASSET)
-Gini(df2014$ASSET)
+# list negative assets
+df2002%>%
+  filter(df2002$ASSET < 0) %>%
+  select(pcode)-> negative2002
+data200202 <- read.table(file = '21741-0002-Data.tsv', sep = '\t', header = TRUE)
+data200202 %>%
+  select(pcode, h414, h417) -> asset2002
+negative2002 <- merge(negative2002, asset2002, all.x = TRUE, all.y = FALSE, by = "pcode")
+summary(negative2002$h414==0)  
+
+summary(df2010_income$ASSET < 0)
+summary(df2014_income$ASSET < 0)
+
+# Gini of ASSET
+df2002[df2002$ASSET >= 0,] -> df2002t
+df2010_income[df2010_income$ASSET >= 0,] -> df2010t
+df2014_income[df2014_income$ASSET >= 0,] -> df2014t
+
+Gini(df2002t$ASSET, conf.level = 0.95, type = "basic")
+Gini(df2010t$ASSET, conf.level = 0.95, type = "basic")
+Gini(df2014t$ASSET, conf.level = 0.95, type = "basic")
 
 #Table 3 Theil Index
 p_load(ineq, segregation, IC2)
 
+# AREA
 Theil(df1988$AREA)
-
 df1988$COLLEGE <- as.factor(df1988$COLLEGE)
+df1988$WORKPLACE <- as.factor(df1988$WORKPLACE)
+df1988$OCCUPATION <- as.factor(df1988$OCCUPATION)
+df1988$PROVINCE <- as.factor(df1988$PROVINCE)
 decompGEI(x=df1988$AREA, z=df1988$COLLEGE, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df1988$AREA, z=df1988$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df1988$AREA, z=df1988$OCCUPATION, w = NULL, alpha = 1, ELMO = TRUE)
@@ -606,6 +787,7 @@ decompGEI(x=df2002$AREA, z=df2002$GENERATION, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df2002$AREA, z=df2002$INCOMEGROUP, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df2002$AREA, z=df2002$PROVINCE, w = NULL, alpha = 1, ELMO = TRUE)
 
+df2010 <- df2010_income
 df2010$COLLEGE <- as.factor(df2010$COLLEGE)
 decompGEI(x=df2010$AREA, z=df2010$COLLEGE, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df2010$AREA, z=df2010$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
@@ -614,21 +796,73 @@ decompGEI(x=df2010$AREA, z=df2010$GENERATION, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df2010$AREA, z=df2010$INCOMEGROUP, w = NULL, alpha = 1, ELMO = TRUE)
 decompGEI(x=df2010$AREA, z=df2010$PROVINCE, w = NULL, alpha = 1, ELMO = TRUE)
 
+df2014 <- df2014_income
+df2014$COLLEGE <- as.factor(df2014$COLLEGE)
+decompGEI(x=df2014$AREA, z=df2014$COLLEGE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014$AREA, z=df2014$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014$AREA, z=df2014$OCCUPATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014$AREA, z=df2014$GENERATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014$AREA, z=df2014$INCOMEGROUP, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014$AREA, z=df2014$PROVINCE, w = NULL, alpha = 1, ELMO = TRUE)
 
-df2002$COLLEGE <- as.factor(df2002$COLLEGE)
-df2002$ASSET[df2002$ASSET == 0] <- 0.0001
-df2002$ASSET[df2002$GROSS_ASSET == 0] <- 0.0001
-ineq(df2002$ASSET, type = "Theil")
-ineq(df2002$GROSS_ASSET, type = "Theil")
+#  ASSET 
+df2002[df2002$ASSET >= 0,] -> df2002t
+df2010_income[df2010_income$ASSET >= 0,] -> df2010t
+df2014_income[df2014_income$ASSET >= 0,] -> df2014t
 
-decompGEI(x=df2002$ASSET, z=df2002$COLLEGE, w = NULL, alpha = 0, ELMO = TRUE)
-decompGEI(x=df2002$GROSS_ASSET, z=df2002$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
+df2002[df2002$ASSET > 0,] -> df2002p
+df2010_income[df2010_income$ASSET > 0,] -> df2010p
+df2014_income[df2014_income$ASSET > 0,] -> df2014p
 
-ineq(df2002$GROSS_ASSET, type = "Theil")
-ineq(df2010$GROSS_ASSET, type = "Theil")
-ineq(df2014$GROSS_ASSET, type = "Theil")
+Theil(df2002t$ASSET) # 0.3777506
+Theil(df2010t$ASSET) # 0.8321001
+Theil(df2014t$ASSET) # 0.6915311
 
-# Table 5: Area
+Theil(df2002p$ASSET) # 0.3777506
+Theil(df2010p$ASSET) # 0.8321001
+Theil(df2014p$ASSET) # 0.6915311
+
+
+####
+df2002t$ASSET[df2002t$ASSET==0] <- 0.0001
+df2010t$ASSET[df2010t$ASSET==0] <- 0.0001
+df2014t$ASSET[df2014t$ASSET==0] <- 0.0001
+
+Theil(df2002t$ASSET)
+Theil(df2010t$ASSET)
+Theil(df2014t$ASSET)
+
+# Theil for ASSET
+df2002t$ASSET[df2002t$ASSET==0] <- 0.0001
+df2002t$COLLEGE <- as.factor(df2002t$COLLEGE)
+decompGEI(x=df2002t$ASSET, z=df2002t$COLLEGE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2002t$ASSET, z=df2002t$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2002t$ASSET, z=df2002t$OCCUPATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2002t$ASSET, z=df2002t$GENERATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2002t$ASSET, z=df2002t$INCOMEGROUP, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2002t$ASSET, z=df2002t$PROVINCE, w = NULL, alpha = 1, ELMO = TRUE)
+
+df2010t$ASSET[df2010t$ASSET==0] <- 0.0001
+df2010t$COLLEGE <- as.factor(df2010t$COLLEGE)
+decompGEI(x=df2010t$ASSET, z=df2010t$COLLEGE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2010t$ASSET, z=df2010t$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2010t$ASSET, z=df2010t$OCCUPATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2010t$ASSET, z=df2010t$GENERATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2010t$ASSET, z=df2010t$INCOMEGROUP, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2010t$ASSET, z=df2010t$PROVINCE, w = NULL, alpha = 1, ELMO = TRUE)
+
+df2014t$ASSET[df2014t$ASSET==0] <- 0.0001
+df2014t$COLLEGE <- as.factor(df2014t$COLLEGE)
+decompGEI(x=df2014t$ASSET, z=df2014t$COLLEGE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014t$ASSET, z=df2014t$WORKPLACE, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014t$ASSET, z=df2014t$OCCUPATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014t$ASSET, z=df2014t$GENERATION, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014t$ASSET, z=df2014t$INCOMEGROUP, w = NULL, alpha = 1, ELMO = TRUE)
+decompGEI(x=df2014t$ASSET, z=df2014t$PROVINCE, w = NULL, alpha = 1, ELMO = TRUE)
+
+
+# TABLE 4: Conducted by STATA
+# Table 5: OLS Regression for Area
 library(jtools)
 df1988$AREA.S <- standardize(df1988$AREA)
 model1988 <- lm(AREA.S ~ SEX + GENERATION  + PARTY + COLLEGE  + NHH + INCOMEGROUP + WORKPLACE + OCCUPATION + PROVINCE,
@@ -642,50 +876,45 @@ model2002 <- lm(AREA.S ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE  + MAR
 summ(model2002,
      digits = getOption("jtools-digits", 3))
 
-df2010$AREA.S <- standardize(df2010$AREA)
+df2010_income$AREA.S <- standardize(df2010_income$AREA)
 model2010 <- lm(AREA.S ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE  + MARRIAGE + NHH + INCOMEGROUP + WORKPLACE + OCCUPATION + PROVINCE,
-                data = df2010)
+                data = df2010_income)
 summ(model2010,
      digits = getOption("jtools-digits", 3))
 
+df2014_income$AREA.S <- standardize(df2014_income$AREA)
+model2014 <- lm(AREA.S ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE  + MARRIAGE + NHH + INCOMEGROUP + WORKPLACE + OCCUPATION + PROVINCE,
+                data = df2014_income)
+summ(model2014,
+     digits = getOption("jtools-digits", 3))
+
+
 # Table 6: generalized Tobit regression
-# package use: tobit
-tobit2002 <- tobit(ASSET ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE,
-                   left = 0, right = Inf, dist = "gaussian", data = df2002)
-summary(tobit2002,digits = 3)
-pseudoR2 <- function(obj) 1 - as.vector(logLik(obj)/logLik(update(obj, . ~ 1)))
-PseudoR2(tobit2002)
-logLik(tobit2002)
+# package use: VGAM
 
-tobit2010 <- tobit(ASSET ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE ,
-                   left = 0, right = Inf, dist = "gaussian", data = df2010)
-summary(tobit2010,digits = 3)
-PseudoR2(tobit2010)
-logLik(tobit2010)
+# transfer CNY into 2014CNY
+df2002$ASSET2014 <- df2002$ASSET * (1.0113*1.0382*1.0178*1.0165*1.0482*1.0593*.9927*1.0318*1.0555*1.0262*1.0263*1.0192)
+df2010$ASSET2014 <- df2010$ASSET * (1.0555*1.0262*1.0263*1.0192)
 
-tobit2014 <- tobit(ASSET ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE,
-                   left = 0, right = Inf, dist = "gaussian", data = df2014)
-summary(tobit2014)
-summary(tobit2014,digits = 3)
-PseudoR2(tobit2014)
-logLik(tobit2014)
+df2002$ASSET2014 <- ifelse(df2002$ASSET2014 < 0, 0, df2002$ASSET2014)
+summary(tobit2002 <- vglm(ASSET2014 ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE, 
+                  tobit(Lower = 0), data = df2002))
 
-df2002$ASSET2014 <- df2002$ASSET / (1.0113*1.0382*1.0178*1.0165*1.0482*1.0593*.9927*1.0318*1.0555*1.0262*1.0263*1.0192)
-df2010$ASSET2014 <- df2010$ASSET / (1.0555*1.0262*1.0263*1.0192)
-tobit2002A <- tobit(ASSET2014 ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE,
-                   left = 0, right = Inf, dist = "gaussian", data = df2002)
-summary(tobit2002A,digits = 3)
-logLik(tobit2002A)
+df2010$ASSET2014 <- ifelse(df2010$ASSET2014 < 0, 0, df2010$ASSET2014)
+summary(tobit2010 <- vglm(ASSET2014 ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE, 
+                          tobit(Lower = 0), data = df2010))
 
-tobit2010A <- tobit(ASSET2014 ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE,
-                    left = 0, right = Inf, dist = "gaussian", data = df2010)
-summary(tobit2010A,digits = 3)
-logLik(tobit2010A)
+df2014$ASSET2014 <- ifelse(df2014$ASSET < 0, 0, df2014$ASSET)
+summary(tobit2014 <- vglm(ASSET2014 ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE, 
+                          tobit(Lower = 0), data = df2014))
 
 
-tobit2014 <- tobit(ASSET ~ SEX + GENERATION  + URESIDENCE + PARTY + COLLEGE + MARRIAGE + NHH + INCOMEGROUP + OCCUPATION + WORKPLACE + PROVINCE,
-                   left = 0, right = Inf, dist = "gaussian", data = df2014other)
-summary(tobit2014)
-summary(tobit2014,digits = 3)
-PseudoR2(tobit2014)
-logLik(tobit2014)
+## discuss the coefficients of "top 25%"
+coefficient <- c(13.772, 14.785, 16.084)
+se <- c(1.946, 2.343, 2.704)
+year <- c(2010, 2012, 2014)
+errorbar <- as.data.frame(cbind(coefficient,se, year))
+p_load(sfsmisc)
+errbar(year, coefficient, 
+       coefficient+1.96*se, coefficient-1.96*se)
+
